@@ -1,0 +1,36 @@
+---
+title: "Protist communities along a surface-groundwater gradient in the Danube wetlands of Vienna" 
+author:  "Angela Cukusic"
+output:
+  html_document:
+    toc: true               # Table of contents
+    toc_float: true         # Keep the table of contents floating on the page
+    code_download: true     # Enable code download button
+    code_copy: true         # Enable code copy button
+    number_sections: true   # Numbering the sections
+    theme: cerulean           # Choose a Bootstrap theme (check available themes)
+    highlight: tango        # Syntax highlighting style 
+---
+
+```{r setup, include=FALSE}
+# For width of code chunks and scroll bar 
+options(width=250)
+
+knitr::opts_chunk$set(eval = TRUE, 
+                      echo = TRUE, 
+                      cache = TRUE,
+                      include = TRUE,
+                      warning = FALSE,
+                      collapse = FALSE,
+                      message = FALSE,
+                      engine = "R", 
+                      # Chunks will always have R code, unless noted
+                      error = TRUE)
+
+```
+
+
+```{r}
+
+```
+
