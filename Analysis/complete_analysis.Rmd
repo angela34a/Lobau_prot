@@ -607,57 +607,7 @@ plot_atp + plot_rest + plot_layout(heights = c(1,3))
 
 ```
 # composition
-```{r}
-tax_table %>% 
- mutate(Class = ifelse(Class == "", paste0("Unclassified ", Division), Class)) -> tax_table
 
-asv_table_r %>% 
-  mutate_if(is.integer, as.numeric) %>% 
-  mutate(class = tax_table$Class) %>%
-  pivot_longer(cols = -class, 
-               values_to = "abundance", 
-               names_to = "sample") %>%
-  left_join(.,env_lobau_final_r, by = c("sample" = "sample_id")) %>%  
-  dplyr::select ("abundance", "class", "well_id.y") %>%
-  mutate(well_id.y = as.factor(well_id.y),
-         class = as.factor(class)) %>%  
-# to find relative abundance within each category  
-  dplyr::group_by(well_id.y) %>%
-  mutate (rel_abund = abundance / sum(abundance)) %>%
-  ungroup() %>%
-# to sum up all the counts of one class from all the samples  
-  dplyr::group_by(well_id.y, class) %>%
-  summarise(rel_abund = sum(rel_abund)) %>%
-  ungroup() %>%
-# those very rare categorize as Diverse others 
-  dplyr::group_by(well_id.y, class) %>%
-  mutate(class = case_when(rel_abund< 0.015~ "Diverse others", 
-                           TRUE ~ class)) %>%
-  ungroup() %>%
-# final regrouping after categorizing for Diverse others  
-  dplyr::group_by(well_id.y, class) %>%
-  summarise(rel_abund = sum(rel_abund)) %>%
-  ungroup() %>%
-
-# plot
-  ggplot(aes(x = well_id.y, y = rel_abund, fill = class)) + 
-  geom_bar(stat = "identity", color = "black",
-           ) +
-  #scale_fill_manual(values=c25) +
-  theme(panel.grid = element_blank(), legend.position="right",
-        legend.text = element_text(size = 6),      # Adjust the text size
-        legend.title = element_text(size = 6),
-        legend.key.size = unit(0.4, "cm"),
-        axis.title = element_text(size=14,face="bold"),
-        axis.text.y = element_text(size=10,face="bold"),
-        axis.text.x = element_text(angle = 90, face = "bold")) + 
-  labs(x = "Temperature categories",
-       y = "Relative abundance", 
-       fill = "Class") +
-  guides(fill=guide_legend(ncol = 1)) 
-
-
-```
 ## by sample site
 ```{r}
 
@@ -738,7 +688,7 @@ cowplot::plot_grid(plot, GP_legend,  rel_widths = c(1, .5))
 mdf_prep_s <- ps_dna %>% tax_glom("Class") %>% 
   psmelt() %>% 
   group_by(season, well_id.y, Class) %>% 
-  mutate(Abundance = sum (Abundance)) %>% 
+  mutate(Abundance = mean (Abundance)) %>% 
   ungroup()  %>% 
   dplyr::group_by(season, well_id.y) %>%
   mutate (rel_abund = Abundance / sum(Abundance)) %>%
@@ -801,6 +751,112 @@ GP_legend <- custom_legend(mdf_GP,
                           legend_text_size = 12)
 cowplot::plot_grid(plot, GP_legend,  rel_widths = c(1, .5))
 ```
+
+```{r}
+#tax_table %>% 
+# dplyr::mutate(Class = ifelse(Class == "", 
+#                       paste0("Unclassified ", Division), Class)) -> tax_table
+
+asv_table_r %>% 
+  mutate_if(is.integer, as.numeric) %>% 
+  mutate(class = tax_table$Class) %>%
+  pivot_longer(cols = -class, 
+               values_to = "abundance", 
+               names_to = "sample") %>%
+  left_join(.,env_lobau_final_r, by = c("sample" = "sample_id")) %>%  
+  dplyr::select ("abundance", "class", "well_id.y", "season") %>%
+  mutate(well_id.y = as.factor(well_id.y),
+         class = as.factor(class),
+         season = as.factor(season)) %>%  
+# to find relative abundance within each category  
+  dplyr::group_by(well_id.y, season) %>%
+  mutate (rel_abund = abundance / sum(abundance)) %>%
+  ungroup() %>%
+# to sum up all the counts of one class from all the samples  
+  dplyr::group_by(well_id.y, class, season) %>%
+  summarise(rel_abund = sum(rel_abund)) %>%
+  ungroup() %>%
+  
+  
+  left_join(., tax_table[,c("Division", "Class" )] %>% 
+              distinct(Class, .keep_all=TRUE) , 
+            by = c("class" = "Class") ) %>% 
+  as.data.frame() -> data1
+
+# coloring
+ColourPalleteMulti <- function(df, group, subgroup){
+
+  # Find how many colour categories to create and the number of colours in each
+  categories <- aggregate(as.formula(paste(subgroup, group, sep="~" )), df, function(x) length(unique(x)))
+  category.start <- (scales::hue_pal(l = 100)(nrow(categories))) 
+  # Set the top of the colour pallete
+  category.end  <- (scales::hue_pal(l = 40)(nrow(categories))) 
+  # set the bottom
+
+  
+  # Build Colour pallette
+  colours <- unlist(lapply(1:nrow(categories),
+                          function(i){
+                            colorRampPalette(colors = c(category.start[i], category.end[i]))(categories[i,2])}))
+  return(colours)
+}
+
+colours <-ColourPalleteMulti(data1, "Division", "class")
+
+data1
+# fix taxonomy for plotting
+divisions <- c("Ciliophora", "Apusomonadidae",  "Conosa", "Ochrophyta",
+               "Rhodophyta", "Opalozoa",  "Breviatea", "Centroheliozoa", 
+               "Chlorophyta", "Choanoflagellida", "Apicomplexa", "Protalveolata_X",
+               "Cryptophyta", "Dinoflagellata", "Lobosa", "Streptophyta", 
+               "Cercozoa", "Discoba", "Eukaryota_XX", "Metamonada", 
+               "Foraminifera", "Haptophyta", "Pseudofungi", "Mesomycetozoa",
+               "Katablepharidophyta", "Sagenista",  "Perkinsea", "Hilomonadea",
+               "Stramenopiles_X",     "Telonemia"    )
+
+#........!!!!! this part of the code still needs adaption to recreate the microshades manually
+
+df$Phylum[!df$Phylum %in% phylums] <- "Others"
+df$Family[!df$Phylum %in% phylums] <- "Others"
+
+"Other Protobacteria" <- df$Family[df$Phylum=="Proteobacteria" & 
+ !df$Family %in% c('Alcaligenaceae','Enterobacteriaceae')] 
+
+"Other Bacteroidetes" <- df$Family[df$Phylum=="Bacteroidetes" &
+ !df$Family %in% c('Bacteroidaceae','Rikenellaceae','Porphyromonadaceae')] 
+
+"Other Firmicutes" <- df$Family[df$Phylum=="Firmicutes" & 
+ !df$Family %in% c('Lactobacillaceae','Clostridiaceae','Ruminococcaceae','Lachnospiraceae')] 
+#........!!!!!
+
+
+
+# plot
+  ggplot(data1[order(data1$Division), ],  
+         aes(x = well_id.y, y = rel_abund, 
+             fill = class)) + 
+  geom_bar(stat = "identity", aes(order = Division) ) +
+  theme_bw() +
+  scale_fill_manual("", values=colours) +
+  #scale_fill_manual(values=randomcoloR::distinctColorPalette(27) ) +
+  theme(panel.grid = element_blank(), legend.position="right",
+        legend.text = element_text(size = 6),      # Adjust the text size
+        legend.title = element_text(size = 6),
+        legend.key.size = unit(0.4, "cm"),
+        axis.title = element_text(size=14,face="bold"),
+        axis.text.y = element_text(size=10,face="bold"),
+        axis.text.x = element_text(angle = 90, face = "bold")) + 
+  labs(x = "Sampling site",
+       y = "Relative abundance %", 
+       fill = "Class") +
+  guides(fill=guide_legend(ncol = 1)) +
+    scale_y_continuous(labels = scales::percent_format()) +
+  facet_wrap(~season, ncol = 4)
+
+  data1$Division %>% unique()
+```
+
+
 
 ```{r}
 
@@ -938,6 +994,7 @@ p.adjust(indval[["sign"]][["p.value"]], method="BH") %>%
 # filter now only the truly sign ones
   dplyr::filter(adj.p < 0.05) %>% 
   dplyr::select("adj.p", "s.1", "s.2", "stat") %>% 
+  
   rownames_to_column("ASVs") %>% 
   left_join(., tax_table %>% rownames_to_column("ASVs"), 
             by = "ASVs") -> species.df
