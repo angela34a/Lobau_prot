@@ -71,9 +71,9 @@ tax_table_SSU_RP2 <- read.delim("~/faks/poster_fungi/poster_fungi_jmf_2023-05-16
 env_data <- read_excel("~/faks/christina/data/data_angela/env_combined.xlsx") 
 ```
 
+# clean up
 
-
-# remove the blanks
+## remove the blanks
 ```{r}
 jmf_blank_info <- read_excel("~/faks/christina/data/data_angela/jmf_2301_09_esw_d15.xlsx") 
 
@@ -97,7 +97,7 @@ asv_table <- asv_table[, colnames(asv_table) %in% jmf_blank_info$JMF.ID]
 
 
 
-# connect sequincing id to sample_id
+## connect sequincing id to sample_id
 ```{r}
 
 # find the unique sample name first based on well id and sampling date
@@ -138,7 +138,7 @@ asv_table <- asv_table[, 1:46]
 ```
 
 
-# clean up env data
+## clean up env data
 ```{r}
 # since we removed the replicates from asv_table remove them from env_table
 
@@ -171,7 +171,7 @@ mutate(season = case_when (
 We are left with 46 samples.
 
 
-# clean up tax data
+## clean up tax data
 For now just remove the Metazoa, Fungi and unclassified divisions.
 ```{r}
 tax_table <- tax_table_SSU_RP2 %>% 
@@ -191,17 +191,20 @@ read_data <- asv_table %>%
 colSums() %>% # how many reads per sample (find sums per each column)
 as.data.frame() %>% 
 rownames_to_column("sample_id") %>% 
-rename("reads" = ".") 
+dplyr::rename("reads" = ".") %>% 
+mutate (well_id = case_when(startsWith(sample_id, "ESW") ~ "ESW",  
+                              startsWith(sample_id, "D15") ~ "D15"   ))
 
 summary(read_data)
 sd(read_data$reads)
 
-boxplot(read_data$reads)
+boxplot(read_data$reads ~ read_data$well_id)
 
 
-# mean: 17356  +- 10557.83
-
-
+read_data %>% 
+  dplyr::filter(reads < 60000) %>% 
+  group_by(well_id) %>% 
+  summarise(sd = sd(reads), mean = mean(reads) )
 
 ```
 
@@ -224,6 +227,8 @@ asv_table %>%
   group_by(sample_id) %>% 
   mutate(counts = sum(counts)) %>% 
   ungroup() %>% 
+  
+  dplyr::filter(counts <60000) %>% 
   
   ggplot(aes(x= well_id.y, y=counts, fill = well_id.y)) +
   geom_boxplot(alpha = 0.7) + 
@@ -279,7 +284,7 @@ wilcox.test(counts_esw$counts, counts_D15$counts)
 ```
 
 
-# by season
+## by season
 ```{r}
 
 asv_table %>% 
@@ -532,6 +537,7 @@ adonis2(t(asv_table_r) ~
 ```
 
 
+
 # env variables
 
 
@@ -606,6 +612,81 @@ pivot_longer(cols = -well_id.y, values_to = "values", names_to = "names") %>%
 plot_atp + plot_rest + plot_layout(heights = c(1,3))
 
 ```
+# bc vs env
+```{r}
+aa <- asv_table_r %>%  
+      t() %>% 
+      vegdist(., method = "bray") %>%
+      as.vector()
+
+env_lobau_final_r %>% 
+  as.data.frame() %>% 
+  column_to_rownames("sample_id") %>% 
+  dplyr::select("pH", "temp_C", "ec_uS_cm", "oxygen_mg_L",
+                "doc_mg_L", "dic_mg_L", "soluble_P_ug_L", 
+                "co2_uM", "cells_per_mL", "atp_internal_pM")%>% 
+  scale() %>% as.data.frame() -> env_euc
+
+env_euc %>%
+  rownames_to_column("asv") %>% 
+  pivot_longer(cols = -asv, values_to = "values",
+               names_to = "variables") %>% 
+  group_by(variables) %>% 
+  summarise(distmatrix=list(dist(values) )) -> dfg
+
+
+for (i in 1:10) {
+  # Set the y values to the current column
+  y_values <- dfg[i, "distmatrix"] %>%  unlist() %>% as.vector() 
+  
+  # Create a plot
+  plot(aa, y_values, type = "p",  pch = 1,
+       col = "blue", xlab = "X-axis", ylab = "Y-axis", 
+       main = dfg[i,"variables"]) +
+    abline(lm(y_values ~ aa ))
+  
+  # Extract the R
+  adj_r_squared <- summary(lm(y_values ~ aa ))$adj.r.squared
+  
+  # Add the slope coefficient as text to the plot
+  text(max(y_values - 1), pos = 2,
+       paste("R2 =", round(adj_r_squared, 2)), 
+       col = "red")
+
+}  
+```
+
+
+
+Relationship of oxygen and composition variability seems most promising, but there is also relationship with atp, cells, and pH.
+
+
+```{r}
+gg <- dist(env_lobau_final_r$oxygen_mg_L %>% na.omit(), 
+           method = "euclidean" )  %>%
+      as.vector()
+
+aa <- asv_table_r[,-33] %>% # this is the sample without oxygen  
+      t() %>% 
+      vegdist(., method = "bray") %>%
+      as.vector() 
+
+data.frame(aa,  gg) %>% 
+  ggplot(aes(x=aa, y=gg)) + 
+  geom_point(color = "black", shape = 21, size = 4, 
+             fill = "gray", alpha = 0.4) +
+  geom_smooth(method = "lm", fullrange = FALSE) +
+  # add correlation info  
+  ggpubr::stat_cor(method = "spearman",  
+                   label.y.npc="top", 
+                   label.x.npc = "left",
+                   color="black", size=4) +
+  theme_bw() +
+  labs(x= "Bray-Curtis dissimilarity", y = "Oxygen gradient") +
+  coord_cartesian(ylim = c(0, 13))
+```
+
+
 # composition
 
 ## by sample site
@@ -751,6 +832,35 @@ GP_legend <- custom_legend(mdf_GP,
                           legend_text_size = 12)
 cowplot::plot_grid(plot, GP_legend,  rel_widths = c(1, .5))
 ```
+
+## by season (only Conosa and Discoba)
+```{r}
+mdf_prep_s %>% 
+  dplyr::filter(Division %in% c("Conosa", "Discoba")) %>% 
+  dplyr::filter(Sample == "D15") %>% 
+  group_by(Division, season) %>% 
+  summarise(Abundance = sum(Abundance)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x=season, y=Abundance, group=Division, fill  = Division )  ) + 
+  geom_line(aes(color = Division), linewidth = 1) + 
+  geom_point(size = 3, shape = 21) +
+  theme_bw() + 
+  scale_x_discrete(limits =c("winter", "spring", "summer", "fall") )+
+  scale_y_continuous( labels = function(x) paste0(x*100, "%")) + 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "gray"),
+        legend.position = c(0.1, 0.8),
+        axis.text.x = element_text(face = "bold", size = 12), 
+        axis.text.y = element_text(face = "bold", size = 11), 
+        axis.title = element_text(face = "bold", size = 14)) +
+  scale_fill_manual(values = c("#1b9476", "#3492eb")) +
+  scale_color_manual(values = c("#1b9476", "#3492eb")) +
+  labs(x = "Season", y = "Relative abundance in season (%)") 
+  
+```
+
 
 ```{r}
 #tax_table %>% 
@@ -946,218 +1056,11 @@ asv_table_r %>%
   arrange(mean)
 ```
 
-# indicator species
-```{r}
-library(indicspecies)
-# community matrix as df with sites in rows
-t(asv_table_r) %>% as.data.frame() -> sp.df
-# make a vector with sampling sites
-sp.df %>% rownames_to_column("sample_name") %>% 
-  dplyr::select("sample_name") %>% 
-  left_join(.,env_lobau_final_r, by = c("sample_name" = "sample_id")) %>% 
-  dplyr::select("well_id.y") %>% 
-  table()
-
- c(rep(1, 17), rep(2, 23) ) -> group_vect
-
-
-indval <- multipatt(sp.df, 
-                    group_vect,
-                    func="IndVal.g",  
-                    duleg=TRUE,  
-                    control = how(nperm=999)) 
-indval$sign
-# the NA p values are the species present in both sites
 
 
 
 
 
-# adjust with fdr:
-
-# see how many are significant before the fdr
-indval[["sign"]][["p.value"]] %>% as.data.frame() %>% 
-  filter(.<0.05) # 908
-
-# after fdr
-p.adjust(indval[["sign"]][["p.value"]], method="BH") %>% 
-  as.data.frame() %>% 
-  filter(.<0.05) # 597
 
 
-# add species names 
-p.adjust(indval[["sign"]][["p.value"]], method="BH") %>% 
-  as.data.frame() %>% 
-  dplyr::rename("adj.p" = ".") %>% 
-# after correcting add the names from the original output  
-  cbind(indval$sign) %>% 
-# filter now only the truly sign ones
-  dplyr::filter(adj.p < 0.05) %>% 
-  dplyr::select("adj.p", "s.1", "s.2", "stat") %>% 
-  
-  rownames_to_column("ASVs") %>% 
-  left_join(., tax_table %>% rownames_to_column("ASVs"), 
-            by = "ASVs") -> species.df
-
-```
-
-
-
-
-# plot df
-
-## bubble plot
-I remove the adj p because I dont use it for plotting.
-```{r}
-species.df %>% 
-  mutate (Sample_site = ifelse(s.1 == 1, "D15", "ESW") ) %>% 
-  dplyr::select("Division", "Family", "Sample_site", "stat") %>%
-  dplyr::filter(Family != "") %>% 
-  arrange(desc(stat) ) %>% 
-  slice_max(stat, n= 70) %>% 
-  ggplot() +
-  geom_point(aes(x = as.factor(Sample_site), y= Family, 
-                 color = Division, cex = stat )
-             #shape = 21, color = "black"
-             ) + 
-  theme_bw() + 
-  scale_color_manual(values = 
-#distinct_palette(n = NA, pal = "brewerPlus") 
-  c("#A6CEE3",  "#1F78B4",  "#B2DF8A", "#33A02C",  "#E31A1C",   "#FDBF6F",
-    "#CAB2D6",   "#6A3D9A",  "#1ff8ff",  "#83d5af" ,  "#E7298A",
-    "#66A61E",  "#A6761D",  "#4b6a53",   "#b249d5",    "#7edc45",
-    "#5c47b8",   "#cfd251",   "#ff69b4", "#69c86c")) -> plot_ind
-
-plot_ind
-
- #"#cd3e50"    "#da6130"   "#5e79b2"   "#c29545"   "#532a5a"   "#5f7b35"  
- #"#c497cf"   "#773a27"   "#7cb9cb"   "#594e50"   "#d3c4a8"   "#c17e7f" ))
-  
-
-
-
-
-```
-
-
-## lollipop plot
-```{r}
-species.df %>% 
-  mutate (Sample_site = ifelse(s.1 == 1, "D15", "ESW") ) %>% 
-  dplyr::select("Division", "Family", "Sample_site", "stat") %>%
-  dplyr::filter(Family != "") %>% 
-  arrange(desc(stat) ) %>% 
-  slice_max(stat, n= 70) %>% 
-  ggplot() +
-  geom_point(aes(x = stat, y= Family, 
-                 color = Sample_site),
-             #shape = 21, color = "black"
-             size = 3 ) + 
-  geom_segment(aes(x=0.8, xend= stat, y=Family, yend =Family)) +
-  theme_bw()
-```
-
-## try to cut sp down more 
-
-This function allows reducing drastically the number of species combinations to be retained for a given target site group.
-```{r}
-sc <- indicators(X=sp.df, cluster=group_vect, 
-                 group=2, 
-                 max.order = 1, 
-                 verbose=TRUE, 
-                 At=0.5, Bt=0.2)
-
-
-pruneindicators(sc, At = 0.2,
-                Bt = 0.3,
-                sqrtIVt = 0,
-                alpha = 1,
-                max.indicators = 4,
-                verbose = FALSE)
-```
-
-
-
-
-# differential abundance
-
-Highly disputable since I needed to add 1 to each value in asv table in order to be able to compute geometric means...
-```{r}
-# for daa we need unrarified data
-
-# remove those with few reads
-asv_table[,colSums(asv_table) > 4000] -> asv_table_unrar
-# remove them from env data
-env_lobau_final[env_lobau_final$sample_id %in%  colnames(asv_table),] -> env_lobau_final_unrar
-
-
-
-as.data.frame(env_lobau_final_unrar) %>% column_to_rownames("sample_id") -> env.data_unrar
-
-ps_dna_unrar <- phyloseq(otu_table(
-                                  ( as.matrix(asv_table_unrar) + 1) , 
-                                   taxa_are_rows=TRUE), 
-                   tax_table(as.matrix(tax_table) ) , 
-                   sample_data(env.data_unrar ) )
-
-
-# make a deseq object
-dds.data = phyloseq_to_deseq2( ps_dna_unrar, ~ well_id.y)
-
-
-dds = DESeq(dds.data)
-dds$well_id.y
-res <- results(dds)  
-
-res <- res[order(res$padj, na.last=NA), ]
-sigtab <- res[(res$padj < alpha), ] %>%  as.data.frame() %>% 
-  rownames_to_column("ASV") %>% 
-  left_join(. , tax_table %>% rownames_to_column("ASV"), 
-            by = "ASV")
-
-# Bayesian estimation of dispersion
-dds <- estimateSizeFactors(dds)
-dds <- estimateDispersions(dds)
-plotDispEsts(dds)
-
-
-ggplot(sigtab, aes(x=log2FoldChange, y=Class, color=Division)) + 
- geom_jitter(size=2, width = 0.2) +  
- scale_color_manual(values = distinct_palette(n = NA, pal = "brewerPlus")  ) 
-
-
-
-# MA plots
-# "Log fold-change vs. mean shows how well the homoskedasticity assumption holds,
-# and identifies unusual OTUs where fold-change is at a limit."
-plotMA(res)
-
-
-```
-# heatmap
-```{r}
-
-select <- sigtab$ASV
-nt <- normTransform(dds) # defaults to log2(x+1)
-log2.norm.counts <- assay(nt)[select, ]
-
-df <-  colData(dds) %>%  as.data.frame() %>%  dplyr::select(well_id.y)
-df2 <- log2.norm.counts %>% as.data.frame() %>% 
-  rownames_to_column("ASV") %>% 
-  left_join(. , tax_table %>% rownames_to_column("ASV"), 
-            by = "ASV") %>% 
-  column_to_rownames("ASV") %>% 
-  dplyr::select("Division") %>% 
-  mutate(Division = as.factor(Division))
-  
-  
- pheatmap::pheatmap(log2.norm.counts %>% t(), 
-                    annotation_col=df2,
-                    annotation_row = df,
-                    main="" ,  
-                    show_colnames = F,
-                    show_rownames = T) +
-  scale_color_manual(values = distinct_palette(n = NA, pal = "brewerPlus")) + 
-  scale_fill_manual(values = distinct_palette(n = NA, pal = "brewerPlus"))
-```
 
