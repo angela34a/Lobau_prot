@@ -3,11 +3,13 @@
 
 
 
-# differential abundance ####
+# differential abundance
 
- # Highly disputable since I needed to add 1 to each value in asv table in order to be able to compute geometric means...
+# DeSeq2 ####
 
-# for daa we need unrarified data
+# disputable since I manually added pseudocount 1 to each value in asv table in order to be able to compute geometric means...
+
+# for this daa we need unrarified data
 
 # remove those with few reads
 asv_table[,colSums(asv_table) > 4000] -> asv_table_unrar
@@ -60,7 +62,7 @@ plotMA(res)
 
 
 
-# heatmap ####
+### heatmap ####
 
 select <- sigtab$ASV
 nt <- normTransform(dds) # defaults to log2(x+1)
@@ -84,5 +86,10 @@ pheatmap::pheatmap(log2.norm.counts %>% t(),
                    show_rownames = T) +
   scale_color_manual(values = distinct_palette(n = NA, pal = "brewerPlus")) + 
   scale_fill_manual(values = distinct_palette(n = NA, pal = "brewerPlus"))
+
+
+# ANCOM ####
+install.packages("ANCOM")
+library(ANCOM)
 
 
