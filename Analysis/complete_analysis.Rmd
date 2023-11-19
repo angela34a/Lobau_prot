@@ -48,7 +48,6 @@ library(compositions)
 library(microeco)
 library(cowplot)
 
-library(DESeq2)
 
 
 pal <- c("gray90", "gray20")
@@ -62,7 +61,7 @@ asv_table_SSU <-  read.csv("~/faks/poster_fungi/poster_fungi_jmf_2023-05-16/JMF-
 names(asv_table_SSU)<- sub("C","", names(asv_table_SSU))
 # the first 78 samples are rna, so we take the second half
 asv_table <- asv_table_SSU[, -c(1:78)]
-
+asv_table_rna <- asv_table_SSU[, c(1:78)] 
 
 # tax table
 tax_table_SSU_RP2 <- read.delim("~/faks/poster_fungi/poster_fungi_jmf_2023-05-16/JMF-2301-09__all__rRNA_SSU_Euk_D__JMFR_MSHI_KP237/DADA2_ASVs.rRNA_SSU.PR2_reference.DADA2_classified.tsv", row.names=1)
@@ -78,11 +77,9 @@ env_data <- read_excel("~/faks/christina/data/data_angela/env_combined.xlsx")
 jmf_blank_info <- read_excel("~/faks/christina/data/data_angela/jmf_2301_09_esw_d15.xlsx") 
 
 
-jmf_blank_info <- 
-# choose only dna  
-  jmf_blank_info[ -c(1:78),] %>% 
+jmf_blank_info <- jmf_blank_info %>% 
   dplyr::select("JMF sample ID", "Sample description", "Date") %>% 
-  rename("Sample_desc" = "Sample description",
+  dplyr::rename("Sample_desc" = "Sample description",
           "JMF.ID" = "JMF sample ID") %>% 
 # add blank or sample column  
   mutate(blank_sample = case_when(startsWith(Sample_desc, "Blank") ~ "blank",
@@ -92,6 +89,7 @@ jmf_blank_info <-
  
 # remove blanks from the asv table
 asv_table <- asv_table[, colnames(asv_table) %in% jmf_blank_info$JMF.ID]
+asv_table_rna <- asv_table_rna[, colnames(asv_table_rna) %in% jmf_blank_info$JMF.ID] 
 ```
 
 
@@ -135,6 +133,21 @@ asv_table %>%
 # the last column is NA -  the Unbekannt one?
 # cannot be sure so just remove it
 asv_table <- asv_table[, 1:46]
+
+
+asv_table_rna %>% 
+  rownames_to_column("taxa") %>% 
+  pivot_longer(cols = - taxa, names_to = "JMF.ID", values_to = "counts" ) %>% 
+  left_join(., jmf_blank_info[,c("sample_id", "JMF.ID")], by = "JMF.ID") %>% 
+  dplyr::select(!"JMF.ID") %>% 
+# if there is replicates for the same sample_id add it up  
+  group_by(taxa, sample_id) %>%
+  summarise(counts = sum(counts)) %>%
+  ungroup() %>% 
+  pivot_wider(names_from = "sample_id", values_from = "counts") %>%
+  column_to_rownames(var="taxa") -> asv_table_rna
+
+
 ```
 
 
@@ -142,7 +155,7 @@ asv_table <- asv_table[, 1:46]
 ```{r}
 # since we removed the replicates from asv_table remove them from env_table
 
-env_lobau_final %>% dplyr::filter(! JMF.ID %in% c("JMF-2301-09-0152", 
+env_lobau_final %>%  dplyr::filter(! JMF.ID %in% c("JMF-2301-09-0152", 
                                                    "JMF-2301-09-0147", 
                                                    "JMF-2301-09-0133",
                                                    "JMF-2301-09-0082", 
@@ -153,14 +166,29 @@ env_lobau_final %>% dplyr::filter(! JMF.ID %in% c("JMF-2301-09-0152",
                                                    "JMF-2301-09-0104", 
                                                    "JMF-2301-09-0139",
                                                    "JMF-2301-09-0100", 
-                                                   "JMF-2301-09-0092") ) -> env_lobau_final
+                                                   "JMF-2301-09-0092", 
+                                                   "JMF-2301-09-0035", 
+                                                   # rna replicates
+                                                        "JMF-2301-09-0016",
+                                                        "JMF-2301-09-0026", 
+                                                        "JMF-2301-09-0028", 
+                                                        "JMF-2301-09-0027", 
+                                                        "JMF-2301-09-0004", 
+                                                        "JMF-2301-09-0029",  
+                                                        "JMF-2301-09-0055", 
+                                                        "JMF-2301-09-0030", 
+                                                        "JMF-2301-09-0032",
+                                                        "JMF-2301-09-0033") ) -> env_lobau_final
 
 # since i know which ones are replicates it is easiest for me to just remove those jmfs
 
 
 
-# add season category
-env_lobau_final <- env_lobau_final %>% 
+
+env_lobau_final <- env_lobau_final %>%
+# add dna vs rna value  
+  mutate(active_comm = ifelse(row_number() <= 49, "rna", "dna")) %>% 
+# add season category  
 mutate(season = case_when ( 
      grepl('2021-05|2021-04|2022-04|2021-03|2022-03|2022-03|2022-05', Date) ~ "spring",
      grepl('2020-07|2022-08|2021-06|2022-06|2021-07|2022-08', Date)  ~ "summer",
@@ -168,7 +196,7 @@ mutate(season = case_when (
      grepl('2020-12|2021-12|2021-01|2022-01|2021-02|2022-02', Date) ~ "winter"   ))
 ```
 
-We are left with 46 samples.
+We are left with 46 samples for dna and 49 for rna.
 
 
 ## clean up tax data
@@ -180,6 +208,8 @@ tax_table <- tax_table_SSU_RP2 %>%
 
 # remove the taxa also from asv_table
 asv_table <- asv_table[which(rownames(asv_table) %in% rownames(tax_table)) ,]
+asv_table_rna <- asv_table_rna[which(rownames(asv_table_rna) %in% rownames(tax_table)) ,]
+
 ```
 
 
@@ -187,7 +217,30 @@ asv_table <- asv_table[which(rownames(asv_table) %in% rownames(tax_table)) ,]
 
 # Read numbers
 ```{r}
+
+# dna
 read_data <- asv_table %>% 
+colSums() %>% # how many reads per sample (find sums per each column)
+as.data.frame() %>% 
+rownames_to_column("sample_id") %>% 
+dplyr::rename("reads" = ".") %>% 
+mutate (well_id = case_when(startsWith(sample_id, "ESW") ~ "ESW",  
+                              startsWith(sample_id, "D15") ~ "D15"   ))
+
+summary(read_data)
+sd(read_data$reads)
+
+boxplot(read_data$reads ~ read_data$well_id)
+
+
+read_data %>% 
+  dplyr::filter(reads < 60000) %>% 
+  group_by(well_id) %>% 
+  summarise(sd = sd(reads), mean = mean(reads) )
+
+
+# rna
+read_data <- asv_table_rna %>% 
 colSums() %>% # how many reads per sample (find sums per each column)
 as.data.frame() %>% 
 rownames_to_column("sample_id") %>% 
@@ -321,7 +374,7 @@ p_counts
 
 # Rarefaction
 ```{r}
-
+# dna
 rrarefy(t(asv_table), sample = 4000) %>% t() %>% as.data.frame() -> asv_table_r
 
 asv_table_r %>% colSums() %>%  plot()
@@ -329,8 +382,32 @@ asv_table_r %>% colSums() %>%  plot()
 # there is 6 sample that have less than 4000 counts
 # remove them from asv_table
 asv_table_r[,colSums(asv_table_r) == 4000] -> asv_table_r
+
+
+
+# rna 
+rrarefy(t(asv_table_rna), sample = 1080) %>% t() %>% as.data.frame() -> asv_table_rna_r
+
+asv_table_rna_r %>% colSums() %>%  plot()
+
+# there is 9 sample that have less than 2000 counts
+# remove them from asv_table
+asv_table_rna_r[,colSums(asv_table_rna_r) == 1080] -> asv_table_rna_r
+
+
+
+
+
 # remove them from env data
-env_lobau_final[env_lobau_final$sample_id %in%  colnames(asv_table_r),] -> env_lobau_final_r
+# dna
+env_lobau_final %>% dplyr::filter(active_comm == "dna") -> env_lobau_final_r
+env_lobau_final_r[env_lobau_final_r$sample_id %in%  
+                    c(colnames(asv_table_r)),] -> env_lobau_final_r
+
+
+# rn
+env_lobau_final %>% dplyr::filter(active_comm == "rna") -> env_lobau_final_rna_r
+env_lobau_final_rna_r[env_lobau_final_rna_r$sample_id %in%  c(colnames(asv_table_rna_r)),] -> env_lobau_final_rna_r
 ```
 
 
@@ -338,8 +415,13 @@ env_lobau_final[env_lobau_final$sample_id %in%  colnames(asv_table_r),] -> env_l
 # ordering
 ```{r}
 env_lobau_final_r[order(env_lobau_final_r$sample_id), ] -> env_lobau_final_r
-rownames(env_lobau_final_r) <- env_lobau_final_r$sample_id
-identical(rownames(env_lobau_final_r), colnames(asv_table_r))
+identical(env_lobau_final_r$sample_id, colnames(asv_table_r))
+
+
+env_lobau_final_rna_r[order(env_lobau_final_rna_r$sample_id), ] -> env_lobau_final_rna_r
+identical(env_lobau_final_rna_r$sample_id, colnames(asv_table_rna_r))
+
+
 ```
 
 
