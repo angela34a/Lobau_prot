@@ -67,7 +67,7 @@ plotMA(res)
 
 select <- sigtab$ASV
 nt <- normTransform(dds) # defaults to log2(x+1)
-log2.norm.counts <- assay(nt)[select, ]
+log2.norm.counts <- assay(nt)[select, ] 
 
 df <-  colData(dds) %>%  as.data.frame() %>%  dplyr::select(well_id.y)
 df2 <- log2.norm.counts %>% as.data.frame() %>% 

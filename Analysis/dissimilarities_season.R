@@ -1,5 +1,5 @@
 # continuation of the complete_analysis script and the nmds analysis
-
+ 
 disp_season <- betadisper( 
  sp.dist, 
   env_lobau_final_r$season ) 

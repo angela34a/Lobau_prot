@@ -57,7 +57,7 @@ ts_no_na %>%
 
 
 forecast::forecast(ts_no_na, h=12) %>% plot()
-
+ 
 # testing
 library(seastests)
 seastests::isSeasonal(ts_no_na, test="kw", freq=12)
